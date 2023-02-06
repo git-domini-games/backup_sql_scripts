@@ -1,0 +1,44 @@
+create or replace view store_google_eur as 
+WITH sales AS (
+         SELECT 
+            google_store_earnings_and_sales.account,
+            google_store_earnings_and_sales.transaction_date AS event_date,
+            google_store_earnings_and_sales.product_id AS sku,
+            google_store_earnings_and_sales.product_id AS id,
+            f.short_name,
+                CASE
+                    WHEN google_store_earnings_and_sales.product_id = ANY (ARRAY['com.dominigames.vwfleshboundgoog'::text, 'com.dominigames.helostparadisegoog'::text, 'com.dominigames.dmflorentineelegygoog'::text, 'com.avexgames.bigadventuretriptoeurope'::text]) THEN 'eipix'::character varying
+                    WHEN google_store_earnings_and_sales.product_id = 'com.dominigames.mf'::text THEN 'hub'::character varying
+                    WHEN google_store_earnings_and_sales.product_id = 'com.dominigames.magicland'::text THEN 'magicland'::character varying
+                    WHEN f.type::text = 'free'::text THEN 'f2p'::character varying
+                    ELSE f.type
+                END AS type,
+            sum(
+                CASE
+                    WHEN google_store_earnings_and_sales.refund IS TRUE THEN '-1'::integer
+                    ELSE 1
+                END) AS purchases,
+            sum(google_store_earnings_and_sales.sales_eur) AS sales,
+            sum(google_store_earnings_and_sales.earnings_eur) AS earnings
+           FROM google_store_earnings_and_sales
+             LEFT JOIN firebase_full_names f ON google_store_earnings_and_sales.product_id = f.app_id::text
+          GROUP BY google_store_earnings_and_sales.account, google_store_earnings_and_sales.transaction_date, google_store_earnings_and_sales.product_id, f.short_name, f.type
+        ), installs AS (
+         SELECT google_store_installs_overview.date AS event_date,
+            google_store_installs_overview.account,
+            google_store_installs_overview.package_name AS sku,
+            sum(google_store_installs_overview.install_events) AS installs
+           FROM google_store_installs_overview
+          GROUP BY google_store_installs_overview.date, google_store_installs_overview.account, google_store_installs_overview.package_name
+        )
+ SELECT sales.account,
+    sales.event_date,
+    sales.sku,
+    sales.short_name,
+    sales.type,
+    installs.installs,
+    sales.purchases,
+    sales.earnings,
+    sales.sales
+   FROM sales
+     LEFT JOIN installs USING (event_date, sku, account);

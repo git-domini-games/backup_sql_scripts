@@ -1,0 +1,98 @@
+with rates AS (
+     SELECT er.event_date,
+            er.currency,
+            er.rate / eur.rate AS rate
+     FROM exchange_rates er
+     JOIN (SELECT event_date,
+                  rate
+	      FROM exchange_rates
+	      WHERE currency = 'EUR') eur
+	 USING (event_date)
+), earnings as (
+SELECT report_date,
+	   account,
+	   transaction_date,
+	   case when transaction_type in ('Charge refund', 'Tax refund', 'Google fee refund')  then true
+	   		else false
+	   end as refund,
+	   description as order_number,
+	   product_title,
+	   product_id,
+	   sku,
+	   buyer_country,
+	   buyer_state,
+	   sum(case when transaction_type in ('Charge', 'Charge refund')  then (amount_merchant_currency /rate)::numeric(10,2)
+	   			else 0
+	   	   end) as sales,
+	   service_fee / 100 as google_fee,
+       sum(case when transaction_type in ('Google fee', 'Google fee refund')  then (amount_merchant_currency / rate)::numeric(10,2)
+       			else 0
+       	   end) as google_commission,
+       sum(case when transaction_type in ('Tax', 'Tax refund')  then (amount_merchant_currency / rate)::numeric(10,2)
+       			else 0
+       	   end) as tax,
+       sum(amount_merchant_currency / rate)::numeric(10,2) AS earnings
+FROM public.google_store_earnings
+join rates on event_date = transaction_date and currency = merchant_currency
+group by report_date, account, transaction_date, refund, description,  product_title, product_id, sku, merchant_currency, buyer_country, buyer_state, service_fee
+), sales as (
+    SELECT
+       report_date,
+       account,
+	   order_number,
+	   order_charged_date,
+	   case
+		   when financial_status  = 'Charged' then false
+		   else true
+	   end as refund,
+	   financial_status,
+	   product_title,
+	   product_id,
+	   sku,
+	   country_of_buyer,
+	   state_of_buyer,
+	   case
+		   when financial_status  = 'Charged' then (item_price * 1.005 / rate)::numeric(10,2) -- 1.005 кто поймет что это отпишите дата инженерам
+		   else (item_price * 1.005 * -1 / rate)::numeric(10,2)
+	   end as sales,
+	   case
+		   when first_usd_1m_eligible  = 'Yes' then 0.15
+		   when first_usd_1m_eligible  = 'No' then 0.30
+	   end as google_fee,
+	   taxes_collected as tax
+   FROM public.google_store_sales
+   join rates on order_charged_date = event_date and currency_of_sale = currency
+   where report_date > (select max(report_date)  from google_store_earnings)
+) select report_date,
+	       account,
+		   order_number,
+		   order_charged_date as transaction_date,
+		   refund,
+		   product_title,
+		   product_id,
+		   sku,
+		   country_of_buyer as  buyer_country,
+		   state_of_buyer as buyer_state,
+		   sales as sales_eur,
+		   google_fee,
+		   (sales * google_fee * -1)::numeric(10,2) as google_commission_eur,
+		   tax::numeric(10,2) as tax_eur,
+		   (sales + (sales * google_fee * -1))::numeric(10,2) as earnings_eur
+	from sales
+	union all
+select report_date,
+	       account,
+		   order_number,
+		   transaction_date,
+		   refund,
+		   product_title,
+		   product_id,
+		   sku,
+		   buyer_country,
+		   buyer_state,
+		   sales as sales_eur,
+		   google_fee,
+		   google_commission as google_commission_eur,
+		   tax as tax_eur,
+		   earnings as earnings_eur
+from earnings

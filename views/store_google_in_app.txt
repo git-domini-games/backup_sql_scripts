@@ -1,0 +1,17 @@
+CREATE OR REPLACE VIEW public.store_google_in_app_eur
+AS SELECT google_store_earnings_and_sales.report_date,
+    google_store_earnings_and_sales.transaction_date AS event_date,
+    google_store_earnings_and_sales.product_id AS sku,
+    f.short_name AS title,
+        CASE
+            WHEN google_store_earnings_and_sales.product_id = ANY (ARRAY['com.dominigames.vwfleshboundgoog'::text, 'com.dominigames.helostparadisegoog'::text, 'com.dominigames.dmflorentineelegygoog'::text, 'com.avexgames.bigadventuretriptoeurope'::text]) THEN 'eipix'::character varying
+            WHEN google_store_earnings_and_sales.product_id = 'com.dominigames.mf'::text THEN 'hub'::character varying
+            WHEN google_store_earnings_and_sales.product_id = 'com.dominigames.magicland'::text THEN 'magicland'::character varying
+            WHEN f.type::text = 'free'::text THEN 'f2p'::character varying
+            ELSE f.type
+        END AS type,
+    google_store_earnings_and_sales.earnings_eur as earnings,
+    google_store_earnings_and_sales.sales_eur as sales,
+    ((string_to_array(google_store_earnings_and_sales.sku, '.'::text))[cardinality(string_to_array(google_store_earnings_and_sales.sku, '.'::text))] || '_'::text) || (string_to_array(google_store_earnings_and_sales.sku, '.'::text))[cardinality(string_to_array(google_store_earnings_and_sales.sku, '.'::text)) - 1] AS in_app_type
+   FROM google_store_earnings_and_sales
+     LEFT JOIN firebase_full_names f ON google_store_earnings_and_sales.product_id = f.app_id::text;

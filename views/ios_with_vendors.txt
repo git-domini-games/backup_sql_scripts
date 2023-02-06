@@ -1,0 +1,172 @@
+CREATE VIEW firebase_events.ios_with_vendors
+(
+
+    `event_date` Date,
+
+    `app_info__id` String,
+
+    `event_timestamp` Nullable(DateTime),
+
+    `event_name` Nullable(String),
+
+    `event_params` Nullable(String),
+
+    `event_previous_timestamp` Nullable(Int64),
+
+    `event_value_in_usd` Nullable(Decimal(9,
+ 2)),
+
+    `event_bundle_sequence_id` Nullable(UInt16),
+
+    `event_server_timestamp_offset` Nullable(Int64),
+
+    `user_id` Nullable(String),
+
+    `user_pseudo_id` Nullable(String),
+
+    `user_properties` Nullable(String),
+
+    `user_first_touch_timestamp` Nullable(DateTime),
+
+    `user_ltv` Nullable(String),
+
+    `device` Nullable(String),
+
+    `geo` Nullable(String),
+
+    `app_info` String,
+
+    `traffic_source` Nullable(String),
+
+    `stream_id` Nullable(Int64),
+
+    `platform` Nullable(String)
+) AS
+WITH
+    all_ios_data AS
+    (
+        SELECT *
+        FROM firebase_events.ios1
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+        UNION ALL
+        SELECT *
+        FROM firebase_events.ios2
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+        UNION ALL
+        SELECT *
+        FROM firebase_events.ios3
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+        UNION ALL
+        SELECT *
+        FROM firebase_events.ios4
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+        UNION ALL
+        SELECT *
+        FROM firebase_events.ios5
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+        UNION ALL
+        SELECT *
+        FROM firebase_events.ios6
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+        UNION ALL
+        SELECT *
+        FROM firebase_events.dominishell_ios
+        WHERE (event_date < '2022-06-02') OR (event_date > '2022-06-05')
+    ),
+
+    vendor_id AS
+    (
+        SELECT
+            event_date,
+
+            user_pseudo_id,
+
+            JSONExtractString(event_params,
+ 'idfv') AS vendor_id
+        FROM all_ios_data
+        WHERE (event_name = 'UserInfo_IDS') AND (vendor_id != '')
+        UNION ALL
+        SELECT DISTINCT
+            event_date,
+
+            user_pseudo_id,
+
+            JSONExtractString(device,
+ 'vendor_id') AS vendor_id
+        FROM all_ios_data
+        WHERE vendor_id != ''
+    ),
+
+    current_vendor_id_for_user AS
+    (
+        SELECT
+            user_pseudo_id,
+
+            vendor_id
+        FROM
+        (
+            SELECT
+                event_date,
+
+                user_pseudo_id,
+
+                vendor_id,
+
+                row_number() OVER (PARTITION BY user_pseudo_id ORDER BY event_date DESC) AS row_nbr
+            FROM vendor_id
+        )
+        WHERE row_nbr = 1
+    )
+SELECT
+    event_date,
+
+    app_info__id,
+
+    event_timestamp,
+
+    event_name,
+
+    event_params,
+
+    event_previous_timestamp,
+
+    event_value_in_usd,
+
+    event_bundle_sequence_id,
+
+    event_server_timestamp_offset,
+
+    user_id,
+
+    user_pseudo_id,
+
+    user_properties,
+
+    user_first_touch_timestamp,
+
+    user_ltv,
+
+    if(vendor_id IS NULL,
+ device,
+ concat(replaceRegexpOne(replaceOne(device,
+ '}',
+ ''),
+ '("vendor_id": \\S*)',
+ ''),
+ ',
+ "vendor_id": ',
+ '"',
+ vendor_id,
+ '"}')) AS device,
+
+    geo,
+
+    app_info,
+
+    traffic_source,
+
+    stream_id,
+
+    platform
+FROM all_ios_data
+LEFT JOIN current_vendor_id_for_user USING (user_pseudo_id);

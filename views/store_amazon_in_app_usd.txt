@@ -1,0 +1,35 @@
+create view store_amazon_in_app_usd as 
+SELECT account, 
+	   marketplace,  
+	   date(transaction_time) as event_date, 
+	   uniq_sku.sku,
+	   CASE
+        	WHEN f.short_name is null then (string_to_array(uniq_sku.title, '.'::text))[1]
+        	ELSE f.short_name
+       END AS short_name,
+       CASE
+            WHEN uniq_sku.sku = ANY (ARRAY['com.dominigames.vwfleshboundgoog'::text, 'com.dominigames.helostparadisegoog'::text, 'com.dominigames.dmflorentineelegygoog'::text, 'com.avexgames.bigadventuretriptoeurope'::text]) THEN 'eipix'::character varying
+            WHEN uniq_sku.sku = 'com.dominigames.mf'::text THEN 'hub'::character varying
+            WHEN uniq_sku.sku = 'com.dominigames.magicland'::text THEN 'magicland'::character varying
+            when uniq_sku.sku LIKE '%.free2play%'::text then 'f2p'::character varying
+            WHEN f.type::text = 'free'::text THEN 'f2p'::character varying
+            ELSE 'prem'::character varying
+       END AS type,
+	   item_name as in_app_type,
+	   case 
+	   		when transaction_type = 'Refund' then ("sales_price_(marketplace_currency)" / e.rate) * -1:: numeric(10, 2)
+	   		else ("sales_price_(marketplace_currency)" / e.rate):: numeric(10, 2)
+	   end as sales,
+	   ("estimated_earnings_(marketplace_currency)" / e.rate)::numeric(10, 2) as earnings
+FROM amazon_store_sales a
+left join exchange_rates e on date(transaction_time) = e.event_date and marketplace_currency = e.currency
+left join (SELECT title, min(vendor_sku) as sku
+		   FROM public.amazon_store_sales
+		   where item_type = 'Application'
+		   group by title) as uniq_sku on a.title = uniq_sku.title
+left join firebase_full_names f on uniq_sku.sku = f.app_id::text
+where item_type = 'In-App'
+
+
+
+
